@@ -43,6 +43,10 @@ class Preprocessor:
         self.nummeshs_mean = df["NumMeshs"].mean()
         self.nummeshs_std = df["NumMeshs"].std()
 
+        # Year の平均と標準偏差を求める
+        self.year_mean = df["Year"].mean()
+        self.year_std = df["Year"].std()
+
         return self
 
     def transform(self, df):
@@ -66,6 +70,9 @@ class Preprocessor:
         df["SumLight"] = np.log(df["SumLight"] + 1)
         df["SumLight"] = (df["SumLight"] - self.sumlight_mean) / self.sumlight_std
 
+        # Year を標準化する
+        df["YearZ"] = (df["Year"] - self.year_mean) / self.year_std
+
         # (サンプルサイズ, 年代数) に変形する
         y = df.pivot(index = "PlaceID", columns = "Year", values = "AverageLandPrice").dropna()
         placeids = y.index
@@ -75,7 +82,13 @@ class Preprocessor:
         x_meanlight = df.pivot(index = "PlaceID", columns = "Year", values = "MeanLight").dropna()
         x_sumlight = df.pivot(index = "PlaceID", columns = "Year", values = "SumLight").dropna()
         x_nummeshs = df.pivot(index = "PlaceID", columns = "Year", values = "NumMeshs").dropna()
-        x = np.stack([x_meanlight.loc[placeids, :].values, x_sumlight.loc[placeids, :].values, x_nummeshs.loc[placeids, :].values], axis = 1)
+        x_year = df.pivot(index = "PlaceID", columns = "Year", values = "YearZ").dropna()
+        x = np.stack([
+            x_meanlight.loc[placeids, :].values,
+            x_sumlight.loc[placeids, :].values,
+            x_nummeshs.loc[placeids, :].values,
+            x_year.loc[placeids, :].values
+        ], axis = 1)
 
         return placeids, x, y
 
@@ -104,7 +117,7 @@ class Estimator:
         x = torch.from_numpy(x).float().to(self.device)
         y = torch.from_numpy(y).float().to(self.device)
         dataset = Dataset(x, y)
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size = 32, shuffle = True)
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size = 128, shuffle = True)
         self.model = Model().to(self.device)
         criterion = nn.MSELoss()
         optimizer = torch.optim.Adam(self.model.parameters())
@@ -144,7 +157,7 @@ class Model(nn.Module):
     def __init__(self):
         super(Model, self).__init__()
 
-        self.conv_1 = nn.Conv2d(in_channels = 3, out_channels = 64, kernel_size = (3, 1), padding = (1, 0))
+        self.conv_1 = nn.Conv2d(in_channels = 4, out_channels = 64, kernel_size = (3, 1), padding = (1, 0))
         self.conv_dropout_1 = nn.Dropout2d()
         self.conv_2 = nn.Conv2d(in_channels = 64, out_channels = 64, kernel_size = (3, 1), padding = (1, 0))
         self.conv_dropout_2 = nn.Dropout2d()
@@ -161,10 +174,10 @@ class Model(nn.Module):
     def forward(self, x):
         # (batchsize, #features = 3, #years = 22)
 
-        # (batchsize, 3, 22) -> # (batchsize, 3, 22, 1)
-        x = x.view(-1, 3, 22, 1)
+        # (batchsize, 4, 22) -> # (batchsize, 4, 22, 1)
+        x = x.view(-1, 4, 22, 1)
 
-        # (batchsize, 3, 22, 1) -> (batchsize, 64, 22, 1)
+        # (batchsize, 4, 22, 1) -> (batchsize, 64, 22, 1)
         x = self.conv_dropout_1(F.relu(self.conv_1(x)))
         # (batchsize, 64, 22, 1) -> (batchsize, 64, 22, 1)
         x = self.conv_dropout_2(F.relu(self.conv_2(x)))
