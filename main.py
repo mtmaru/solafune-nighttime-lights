@@ -81,7 +81,7 @@ class Preprocessor:
 
 class Estimator:
     def __init__(self):
-        self.epochs = 1000
+        self.epochs = 10000
         self.model = None
 
     def __getstate__(self):
@@ -141,9 +141,12 @@ class Model(nn.Module):
     def __init__(self):
         super(Model, self).__init__()
 
-        self.conv_1 = nn.Conv1d(3, 4, 3)
-        self.conv_2 = nn.Conv1d(4, 8, 3)
-        self.conv_3 = nn.Conv1d(8, 16, 3)
+        self.conv_1 = nn.Conv2d(3, 4, (3, 1))
+        self.conv_dropout_1 = nn.Dropout2d()
+        self.conv_2 = nn.Conv2d(4, 8, (3, 1))
+        self.conv_dropout_2 = nn.Dropout2d()
+        self.conv_3 = nn.Conv2d(8, 16, (3, 1))
+        self.conv_dropout_3 = nn.Dropout2d()
         self.fc_1 = nn.Linear(256, 128)
         self.norm_1 = nn.BatchNorm1d(128)
         self.dropout_1 = nn.Dropout()
@@ -155,14 +158,17 @@ class Model(nn.Module):
     def forward(self, x):
         # (batchsize, #features = 3, #years = 22)
 
-        # (batchsize, 3, 22) -> (batchsize, 4, 20)
-        x = F.relu(self.conv_1(x))
-        # (batchsize, 4, 20) -> (batchsize, 8, 18)
-        x = F.relu(self.conv_2(x))
-        # (batchsize, 8, 18) -> (batchsize, 16, 16)
-        x = F.relu(self.conv_3(x))
+        # (batchsize, 3, 22) -> # (batchsize, 3, 22, 1)
+        x = x.view(-1, 3, 22, 1)
 
-        # (batchsize, 16, 16) -> (batchsize, 256)
+        # (batchsize, 3, 22, 1) -> (batchsize, 4, 20, 1)
+        x = self.conv_dropout_1(F.relu(self.conv_1(x)))
+        # (batchsize, 4, 20, 1) -> (batchsize, 8, 18, 1)
+        x = self.conv_dropout_2(F.relu(self.conv_2(x)))
+        # (batchsize, 8, 18, 1) -> (batchsize, 16, 16, 1)
+        x = self.conv_dropout_3(F.relu(self.conv_3(x)))
+
+        # (batchsize, 16, 16, 1) -> (batchsize, 256)
         x = torch.flatten(x, start_dim = 1)
 
         # (batchsize, 256) -> (batchsize, 128)
