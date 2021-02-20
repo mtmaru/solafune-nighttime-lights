@@ -80,13 +80,15 @@ class Preprocessor:
         return placeids, x, y
 
 class Estimator:
-    def __init__(self):
-        self.epochs = 10000
+    def __init__(self, epochs, device):
+        self.epochs = epochs
+        self.device = device
         self.model = None
 
     def __getstate__(self):
         state = {
             "epochs": self.epochs,
+            "device": self.device,
             "model": self.model.state_dict()
         }
 
@@ -94,15 +96,16 @@ class Estimator:
 
     def __setstate__(self, state):
         self.epochs = state["epochs"]
-        self.model = Model()
+        self.device = state["device"]
+        self.model = Model().to(state["device"])
         self.model.load_state_dict(state["model"])
     
     def fit(self, x, y, callbacks = []):
-        x = torch.from_numpy(x).float()
-        y = torch.from_numpy(y).float()
+        x = torch.from_numpy(x).float().to(self.device)
+        y = torch.from_numpy(y).float().to(self.device)
         dataset = Dataset(x, y)
         dataloader = torch.utils.data.DataLoader(dataset, batch_size = 32, shuffle = True)
-        self.model = Model()
+        self.model = Model().to(self.device)
         criterion = nn.MSELoss()
         optimizer = torch.optim.Adam(self.model.parameters())
         for epoch in range(self.epochs):
@@ -119,10 +122,10 @@ class Estimator:
         return self
 
     def predict(self, x):
-        x = torch.from_numpy(x).float()
+        x = torch.from_numpy(x).float().to(self.device)
         self.model.eval()
         y_pred = self.model(x)
-        y_pred = y_pred.detach().numpy()
+        y_pred = y_pred.cpu().detach().numpy()
 
         return y_pred
 
@@ -141,13 +144,13 @@ class Model(nn.Module):
     def __init__(self):
         super(Model, self).__init__()
 
-        self.conv_1 = nn.Conv2d(3, 4, (3, 1))
+        self.conv_1 = nn.Conv2d(in_channels = 3, out_channels = 64, kernel_size = (3, 1), padding = (1, 0))
         self.conv_dropout_1 = nn.Dropout2d()
-        self.conv_2 = nn.Conv2d(4, 8, (3, 1))
+        self.conv_2 = nn.Conv2d(in_channels = 64, out_channels = 64, kernel_size = (3, 1), padding = (1, 0))
         self.conv_dropout_2 = nn.Dropout2d()
-        self.conv_3 = nn.Conv2d(8, 16, (3, 1))
+        self.conv_3 = nn.Conv2d(in_channels = 64, out_channels = 64, kernel_size = (3, 1), padding = (1, 0))
         self.conv_dropout_3 = nn.Dropout2d()
-        self.fc_1 = nn.Linear(256, 128)
+        self.fc_1 = nn.Linear(1408, 128)
         self.norm_1 = nn.BatchNorm1d(128)
         self.dropout_1 = nn.Dropout()
         self.fc_2 = nn.Linear(128, 128)
@@ -161,17 +164,17 @@ class Model(nn.Module):
         # (batchsize, 3, 22) -> # (batchsize, 3, 22, 1)
         x = x.view(-1, 3, 22, 1)
 
-        # (batchsize, 3, 22, 1) -> (batchsize, 4, 20, 1)
+        # (batchsize, 3, 22, 1) -> (batchsize, 64, 22, 1)
         x = self.conv_dropout_1(F.relu(self.conv_1(x)))
-        # (batchsize, 4, 20, 1) -> (batchsize, 8, 18, 1)
+        # (batchsize, 64, 22, 1) -> (batchsize, 64, 22, 1)
         x = self.conv_dropout_2(F.relu(self.conv_2(x)))
-        # (batchsize, 8, 18, 1) -> (batchsize, 16, 16, 1)
+        # (batchsize, 64, 22, 1) -> (batchsize, 64, 22, 1)
         x = self.conv_dropout_3(F.relu(self.conv_3(x)))
 
-        # (batchsize, 16, 16, 1) -> (batchsize, 256)
+        # (batchsize, 64, 22, 1) -> (batchsize, 1408)
         x = torch.flatten(x, start_dim = 1)
 
-        # (batchsize, 256) -> (batchsize, 128)
+        # (batchsize, 1408) -> (batchsize, 128)
         x = self.dropout_1(F.relu(self.norm_1(self.fc_1(x))))
         # (batchsize, 128) -> (batchsize, 128)
         x = self.dropout_2(F.relu(self.norm_2(self.fc_2(x))))
@@ -181,6 +184,9 @@ class Model(nn.Module):
         return x
 
 def train():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(device)
+
     train = pd.read_csv(
         "input/TrainDataSet.csv",
         dtype = {
@@ -211,7 +217,7 @@ def train():
                 test_rmse = (((test_y - test_y_pred) * preprocessor.y_std) ** 2).mean() ** 0.5
                 print("Epoch: {:4d}, RMSE (Training): {:.4f}, RMSE (Test): {:.4f}".format(epoch, train_rmse, test_rmse))
             return False
-        estimator = Estimator()
+        estimator = Estimator(10000, device)
         estimator.fit(train_x, train_y, [print_rmse])
 
         test_y_pred = estimator.predict(test_x)
