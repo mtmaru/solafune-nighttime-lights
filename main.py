@@ -17,33 +17,25 @@ class Preprocessor:
         self.meanlight_std = None
         self.sumlight_mean = None
         self.sumlight_std = None
+        self.nummeshs_mean = None
+        self.nummeshs_std = None
+        self.year_mean = None
+        self.year_std = None
 
     def fit(self, df):
         df = df.copy()
 
-        # log(AverageLandPrice + 1) の平均と標準偏差を求める
-        df["AverageLandPrice"] = np.log(df["AverageLandPrice"] + 1)
+        df = self._add_features(df)
+        df = self._filter(df)
+
         self.y_mean = df["AverageLandPrice"].mean()
         self.y_std = df["AverageLandPrice"].std()
-
-        # log(MeanLight + 1) の平均と標準偏差を求める
-        df["MeanLight"] = np.log(df["MeanLight"] + 1)
         self.meanlight_mean = df["MeanLight"].mean()
         self.meanlight_std = df["MeanLight"].std()
-
-        # log(SumLight + 1) の平均と標準偏差を求める
-        df["SumLight"] = np.log(df["SumLight"] + 1)
         self.sumlight_mean = df["SumLight"].mean()
         self.sumlight_std = df["SumLight"].std()
-
-        # log(SumLight / MeanLight + 1) の平均と標準偏差を求める
-        df["NumMeshs"] = np.round(df["SumLight"] / df["MeanLight"])
-        df["NumMeshs"].fillna(0.0, inplace = True)
-        df["NumMeshs"] = np.log(df["NumMeshs"] + 1)
         self.nummeshs_mean = df["NumMeshs"].mean()
         self.nummeshs_std = df["NumMeshs"].std()
-
-        # Year の平均と標準偏差を求める
         self.year_mean = df["Year"].mean()
         self.year_std = df["Year"].std()
 
@@ -52,37 +44,69 @@ class Preprocessor:
     def transform(self, df):
         df = df.copy()
 
-        # log(AverageLandPrice + 1) を標準化する
+        df = self._add_features(df)
+        df = self._filter(df)
+        df = self._transfrom_normalize(df)
+        placeids, x, y = self._transfrom_pivot(df)
+
+        return placeids, x, y
+
+    def _add_features(self, df):
+        # 土地価格の平均の対数
         df["AverageLandPrice"] = np.log(df["AverageLandPrice"] + 1)
-        df["AverageLandPrice"] = (df["AverageLandPrice"] - self.y_mean) / self.y_std
 
-        # log(SumLight / MeanLight + 1) を標準化する
+        # メッシュ数の対数
+        df["Between2009and2011"] = (2009 <= df["Year"]) & (df["Year"] <= 2011)
         df["NumMeshs"] = np.round(df["SumLight"] / df["MeanLight"])
-        df["NumMeshs"].fillna(0.0, inplace = True)
+        nummeshs_mean = df.groupby(["PlaceID", "Between2009and2011"], as_index = False)["NumMeshs"].mean()
+        df = df.drop(columns = "NumMeshs").merge(nummeshs_mean, how = "left", on = ["PlaceID", "Between2009and2011"])
+        df.drop(columns = ["Between2009and2011"], inplace = True)
         df["NumMeshs"] = np.log(df["NumMeshs"] + 1)
-        df["NumMeshs"] = (df["NumMeshs"] - self.nummeshs_mean) / self.nummeshs_std
 
-        # log(MeanLight + 1) を標準化する
+        # 夜間光の平均の対数
         df["MeanLight"] = np.log(df["MeanLight"] + 1)
-        df["MeanLight"] = (df["MeanLight"] - self.meanlight_mean) / self.meanlight_std
 
-        # log(SumLight + 1) を標準化する
+        # 夜間光の合計の対数
         df["SumLight"] = np.log(df["SumLight"] + 1)
-        df["SumLight"] = (df["SumLight"] - self.sumlight_mean) / self.sumlight_std
 
-        # Year を標準化する
+        # 年代
+        df["Year"] = df["Year"]
+
+        return df
+
+    def _filter(self, df):
+        # 22年分揃っているデータに絞る
+        num_years = df.groupby("PlaceID").size()
+        blacklist = num_years.loc[num_years < 22].index
+        df = df.loc[lambda df: ~df["PlaceID"].isin(blacklist), :].copy()
+
+        # メッシュ数が欠損していないデータに絞る
+        num_na = df.assign(IsNa = lambda df: df["NumMeshs"].isna()).groupby("PlaceID")["IsNa"].sum()
+        blacklist = num_na.loc[num_na > 0].index
+        df = df.loc[lambda df: ~df["PlaceID"].isin(blacklist), :].copy()
+
+        return df
+
+    def _transfrom_normalize(self, df):
+        df["AverageLandPrice"] = (df["AverageLandPrice"] - self.y_mean) / self.y_std
+        df["MeanLight"] = (df["MeanLight"] - self.meanlight_mean) / self.meanlight_std
+        df["SumLight"] = (df["SumLight"] - self.sumlight_mean) / self.sumlight_std
+        df["NumMeshs"] = (df["NumMeshs"] - self.nummeshs_mean) / self.nummeshs_std
         df["YearZ"] = (df["Year"] - self.year_mean) / self.year_std
 
+        return df
+
+    def _transfrom_pivot(self, df):
         # (サンプルサイズ, 年代数) に変形する
-        y = df.pivot(index = "PlaceID", columns = "Year", values = "AverageLandPrice").dropna()
+        y = df.pivot(index = "PlaceID", columns = "Year", values = "AverageLandPrice")
         placeids = y.index
         y = y.values
 
         # (サンプルサイズ, 特徴数, 年代数) に変形する
-        x_meanlight = df.pivot(index = "PlaceID", columns = "Year", values = "MeanLight").dropna()
-        x_sumlight = df.pivot(index = "PlaceID", columns = "Year", values = "SumLight").dropna()
-        x_nummeshs = df.pivot(index = "PlaceID", columns = "Year", values = "NumMeshs").dropna()
-        x_year = df.pivot(index = "PlaceID", columns = "Year", values = "YearZ").dropna()
+        x_meanlight = df.pivot(index = "PlaceID", columns = "Year", values = "MeanLight")
+        x_sumlight = df.pivot(index = "PlaceID", columns = "Year", values = "SumLight")
+        x_nummeshs = df.pivot(index = "PlaceID", columns = "Year", values = "NumMeshs")
+        x_year = df.pivot(index = "PlaceID", columns = "Year", values = "YearZ")
         x = np.stack([
             x_meanlight.loc[placeids, :].values,
             x_sumlight.loc[placeids, :].values,
