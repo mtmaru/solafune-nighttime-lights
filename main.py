@@ -185,10 +185,13 @@ class Model(nn.Module):
         self.hidden_size = 128
 
         self.conv_1 = nn.Conv2d(in_channels = 4, out_channels = self.conv_size, kernel_size = (3, 1), padding = (1, 0))
+        self.conv_norm_1 = nn.BatchNorm2d(num_features = self.conv_size)
         self.conv_dropout_1 = nn.Dropout2d()
         self.conv_2 = nn.Conv2d(in_channels = self.conv_size, out_channels = self.conv_size, kernel_size = (3, 1), padding = (1, 0))
+        self.conv_norm_2 = nn.BatchNorm2d(num_features = self.conv_size)
         self.conv_dropout_2 = nn.Dropout2d()
         self.conv_3 = nn.Conv2d(in_channels = self.conv_size, out_channels = self.conv_size, kernel_size = (3, 1), padding = (1, 0))
+        self.conv_norm_3 = nn.BatchNorm2d(num_features = self.conv_size)
         self.conv_dropout_3 = nn.Dropout2d()
         self.fc_1 = nn.Linear(self.conv_size * 22, self.hidden_size)
         self.norm_1 = nn.BatchNorm1d(self.hidden_size)
@@ -205,11 +208,11 @@ class Model(nn.Module):
         x = x.view(-1, 4, 22, 1)
 
         # (batchsize, #features, #years, 1) -> (batchsize, conv_size, #years, 1)
-        x = self.conv_dropout_1(F.relu(self.conv_1(x)))
+        x = self.conv_dropout_1(F.relu(self.conv_norm_1(self.conv_1(x))))
         # (batchsize, conv_size, #years, 1) -> (batchsize, conv_size, #years, 1)
-        x = self.conv_dropout_2(F.relu(self.conv_2(x)))
+        x = self.conv_dropout_2(F.relu(self.conv_norm_2(self.conv_2(x))))
         # (batchsize, conv_size, #years, 1) -> (batchsize, conv_size, #years, 1)
-        x = self.conv_dropout_3(F.relu(self.conv_3(x)))
+        x = self.conv_dropout_3(F.relu(self.conv_norm_3(self.conv_3(x))))
 
         # (batchsize, conv_size, #years, 1) -> (batchsize, conv_size * #years)
         x = torch.flatten(x, start_dim = 1)
