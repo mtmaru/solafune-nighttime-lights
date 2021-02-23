@@ -28,14 +28,14 @@ class Preprocessor:
         df = self._add_features(df)
         df = self._filter(df)
 
-        self.y_mean = df["AverageLandPrice"].mean()
-        self.y_std = df["AverageLandPrice"].std()
-        self.meanlight_mean = df["MeanLight"].mean()
-        self.meanlight_std = df["MeanLight"].std()
-        self.sumlight_mean = df["SumLight"].mean()
-        self.sumlight_std = df["SumLight"].std()
-        self.nummeshs_mean = df["NumMeshs"].mean()
-        self.nummeshs_std = df["NumMeshs"].std()
+        self.y_mean = df["AverageLandPriceLog"].mean()
+        self.y_std = df["AverageLandPriceLog"].std()
+        self.meanlight_mean = df["MeanLightLog"].mean()
+        self.meanlight_std = df["MeanLightLog"].std()
+        self.sumlight_mean = df["SumLightLog"].mean()
+        self.sumlight_std = df["SumLightLog"].std()
+        self.nummeshs_mean = df["NumMeshsLog"].mean()
+        self.nummeshs_std = df["NumMeshsLog"].std()
         self.year_mean = df["Year"].mean()
         self.year_std = df["Year"].std()
 
@@ -53,7 +53,13 @@ class Preprocessor:
 
     def _add_features(self, df):
         # 土地価格の平均の対数
-        df["AverageLandPrice"] = np.log(df["AverageLandPrice"] + 1)
+        df["AverageLandPriceLog"] = np.log(df["AverageLandPrice"] + 1)
+
+        # 夜間光の平均の対数
+        df["MeanLightLog"] = np.log(df["MeanLight"] + 1)
+
+        # 夜間光の合計の対数
+        df["SumLightLog"] = np.log(df["SumLight"] + 1)
 
         # メッシュ数の対数
         df["Between2009and2011"] = (2009 <= df["Year"]) & (df["Year"] <= 2011)
@@ -61,13 +67,7 @@ class Preprocessor:
         nummeshs_mean = df.groupby(["PlaceID", "Between2009and2011"], as_index = False)["NumMeshs"].mean()
         df = df.drop(columns = "NumMeshs").merge(nummeshs_mean, how = "left", on = ["PlaceID", "Between2009and2011"])
         df.drop(columns = ["Between2009and2011"], inplace = True)
-        df["NumMeshs"] = np.log(df["NumMeshs"] + 1)
-
-        # 夜間光の平均の対数
-        df["MeanLight"] = np.log(df["MeanLight"] + 1)
-
-        # 夜間光の合計の対数
-        df["SumLight"] = np.log(df["SumLight"] + 1)
+        df["NumMeshsLog"] = np.log(df["NumMeshs"] + 1)
 
         # 年代
         df["Year"] = df["Year"]
@@ -81,31 +81,31 @@ class Preprocessor:
         df = df.loc[lambda df: ~df["PlaceID"].isin(blacklist), :].copy()
 
         # メッシュ数が欠損していないデータに絞る
-        num_na = df.assign(IsNa = lambda df: df["NumMeshs"].isna()).groupby("PlaceID")["IsNa"].sum()
+        num_na = df.assign(IsNa = lambda df: df["NumMeshsLog"].isna()).groupby("PlaceID")["IsNa"].sum()
         blacklist = num_na.loc[num_na > 0].index
         df = df.loc[lambda df: ~df["PlaceID"].isin(blacklist), :].copy()
 
         return df
 
     def _transfrom_normalize(self, df):
-        df["AverageLandPrice"] = (df["AverageLandPrice"] - self.y_mean) / self.y_std
-        df["MeanLight"] = (df["MeanLight"] - self.meanlight_mean) / self.meanlight_std
-        df["SumLight"] = (df["SumLight"] - self.sumlight_mean) / self.sumlight_std
-        df["NumMeshs"] = (df["NumMeshs"] - self.nummeshs_mean) / self.nummeshs_std
+        df["AverageLandPriceLogZ"] = (df["AverageLandPriceLog"] - self.y_mean) / self.y_std
+        df["MeanLightLogZ"] = (df["MeanLightLog"] - self.meanlight_mean) / self.meanlight_std
+        df["SumLightLogZ"] = (df["SumLightLog"] - self.sumlight_mean) / self.sumlight_std
+        df["NumMeshsLogZ"] = (df["NumMeshsLog"] - self.nummeshs_mean) / self.nummeshs_std
         df["YearZ"] = (df["Year"] - self.year_mean) / self.year_std
 
         return df
 
     def _transfrom_pivot(self, df):
         # (サンプルサイズ, 年代数) に変形する
-        y = df.pivot(index = "PlaceID", columns = "Year", values = "AverageLandPrice")
+        y = df.pivot(index = "PlaceID", columns = "Year", values = "AverageLandPriceLogZ")
         placeids = y.index
         y = y.values
 
         # (サンプルサイズ, 特徴数, 年代数) に変形する
-        x_meanlight = df.pivot(index = "PlaceID", columns = "Year", values = "MeanLight")
-        x_sumlight = df.pivot(index = "PlaceID", columns = "Year", values = "SumLight")
-        x_nummeshs = df.pivot(index = "PlaceID", columns = "Year", values = "NumMeshs")
+        x_meanlight = df.pivot(index = "PlaceID", columns = "Year", values = "MeanLightLogZ")
+        x_sumlight = df.pivot(index = "PlaceID", columns = "Year", values = "SumLightLogZ")
+        x_nummeshs = df.pivot(index = "PlaceID", columns = "Year", values = "NumMeshsLogZ")
         x_year = df.pivot(index = "PlaceID", columns = "Year", values = "YearZ")
         x = np.stack([
             x_meanlight.loc[placeids, :].values,
