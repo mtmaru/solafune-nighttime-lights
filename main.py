@@ -248,7 +248,7 @@ def train():
     placeids, x, y = preprocessor.transform(train)
 
     test_rmse_list = []
-    for i in range(10):
+    for i in range(100):
         print("======== Estimator {} ========".format(i))
 
         train_x, test_x, train_y, test_y = train_test_split(x, y, test_size = 0.2, random_state = i)
@@ -267,7 +267,7 @@ def train():
         test_rmse = (((test_y - test_y_pred) * preprocessor.y_std) ** 2).mean() ** 0.5
         test_rmse_list.append(test_rmse)
 
-        with open("output/model/model_{}.pickle".format(i), mode = "wb") as fp:
+        with open("output/model/model_{:02d}.pickle".format(i), mode = "wb") as fp:
             pickle.dump(estimator, fp)
 
     print("RMSE: mean {:.4f} std {:.4f}".format(
@@ -292,11 +292,11 @@ def predict():
     placeids, x, y = preprocessor.transform(test)
 
     y_pred = np.zeros(y.shape)
-    for i in range(10):
-        with open("output/model/model_{}.pickle".format(i), mode = "rb") as fp:
+    for i in range(100):
+        with open("output/model/model_{:02d}.pickle".format(i), mode = "rb") as fp:
             estimator = pickle.load(fp)
         y_pred = y_pred + estimator.predict(x)
-    y_pred = y_pred / 10
+    y_pred = y_pred / 100
 
     y_pred = pd.DataFrame(y_pred, index = placeids, columns = [1992 + i for i in range(22)])
     y_pred = y_pred.stack().rename_axis(["PlaceID", "Year"]).rename("LandPrice").reset_index()
