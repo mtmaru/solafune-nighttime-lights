@@ -298,7 +298,7 @@ def predict():
     y_pred = pd.DataFrame(y_pred, index = placeids, columns = [1992 + i for i in range(22)])
     y_pred = y_pred.stack().rename_axis(["PlaceID", "Year"]).rename("LandPrice").reset_index()
     y_pred["LandPrice"] = np.exp(y_pred["LandPrice"] * preprocessor.y_std + preprocessor.y_mean) - 1
-    y_pred.to_csv("output/submittion.csv", index = False, header = True)
+    y_pred.to_csv("output/submission.csv", index = False, header = True)
 
 if __name__ == "__main__":
     args = sys.argv
